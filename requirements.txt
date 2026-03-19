@@ -1,0 +1,9 @@
+streamlit
+pandas
+plotly
+playwright
+beautifulsoup4
+spacy
+flashtext
+python-dotenv
+groq
