@@ -9,7 +9,7 @@ except ImportError:
     GROQ_AVAILABLE = False
 
 class AmbitionBoxScraper:
-    def __init__(self, groq_api_key: str = None):
+    def __init__(self, groq_api_key=None):
         self.base_url = "https://www.ambitionbox.com/salaries"
         self.groq_client = None
         

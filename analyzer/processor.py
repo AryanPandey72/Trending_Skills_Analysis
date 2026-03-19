@@ -8,10 +8,6 @@ import time
 # Suppress harmless similarity warnings from small spacy models
 warnings.filterwarnings("ignore", message=".*The model you're using has no word vectors loaded.*")
 
-from dotenv import load_dotenv
-
-# Load environment variables
-load_dotenv()
 
 try:
     import groq
@@ -20,7 +16,7 @@ except ImportError:
     GROQ_AVAILABLE = False
 
 class DataProcessor:
-    def __init__(self, groq_api_key: str = None):
+    def __init__(self, groq_api_key=None):
         self.groq_client = None
         self.groq_api_healthy = False
         
