@@ -7,6 +7,19 @@ import plotly.express as px
 import plotly.graph_objects as go
 import itertools
 
+# Load secrets into os.environ BEFORE importing modules that read them at import time
+# Streamlit Cloud uses st.secrets; local dev uses .env file
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
+try:
+    if "GROQ_API_KEY" in st.secrets:
+        os.environ["GROQ_API_KEY"] = st.secrets["GROQ_API_KEY"]
+except Exception:
+    pass  # Not on Streamlit Cloud, key may already be in os.environ from .env
 
 # Add parent dir to path so we can import modules
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
