@@ -8,23 +8,17 @@ try:
 except ImportError:
     GROQ_AVAILABLE = False
 
-_groq_client = None
-
-def _get_groq_client():
-    """Lazily initialize the Groq client so env vars have time to be set."""
-    global _groq_client
-    if _groq_client is None and GROQ_AVAILABLE:
-        api_key = os.environ.get("GROQ_API_KEY")
-        if api_key:
+class AmbitionBoxScraper:
+    def __init__(self, groq_api_key: str = None):
+        self.base_url = "https://www.ambitionbox.com/salaries"
+        self.groq_client = None
+        
+        key = groq_api_key or os.environ.get("GROQ_API_KEY")
+        if key and GROQ_AVAILABLE:
             try:
-                _groq_client = groq.Groq(api_key=api_key)
+                self.groq_client = groq.Groq(api_key=key)
             except Exception as e:
                 print(f"Groq init error: {e}")
-    return _groq_client
-
-class AmbitionBoxScraper:
-    def __init__(self):
-        self.base_url = "https://www.ambitionbox.com/salaries"
 
     async def get_salaries_batch(self, job_title: str, companies: list) -> dict:
         """Fetch average salary data for multiple companies using LLM estimation."""
@@ -36,8 +30,7 @@ class AmbitionBoxScraper:
         if not valid_companies:
             return results
         
-        client = _get_groq_client()
-        if client:
+        if self.groq_client:
             system_prompt = (
                 "You are an expert compensation analyst. "
                 "Estimate the average yearly salary in INR for the given role at the listed companies. "
@@ -48,7 +41,7 @@ class AmbitionBoxScraper:
             
             try:
                 completion = await asyncio.to_thread(
-                    client.chat.completions.create,
+                    self.groq_client.chat.completions.create,
                     model="llama-3.3-70b-versatile",
                     messages=[
                         {"role": "system", "content": system_prompt},

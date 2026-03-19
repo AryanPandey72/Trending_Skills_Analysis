@@ -7,8 +7,8 @@ import plotly.express as px
 import plotly.graph_objects as go
 import itertools
 
-# Load secrets into os.environ BEFORE importing modules that read them at import time
-# Streamlit Cloud uses st.secrets; local dev uses .env file
+# Get Groq API key - try Streamlit secrets first, then .env
+_groq_key = None
 try:
     from dotenv import load_dotenv
     load_dotenv()
@@ -16,10 +16,9 @@ except ImportError:
     pass
 
 try:
-    if "GROQ_API_KEY" in st.secrets:
-        os.environ["GROQ_API_KEY"] = st.secrets["GROQ_API_KEY"]
+    _groq_key = st.secrets["GROQ_API_KEY"]
 except Exception:
-    pass  # Not on Streamlit Cloud, key may already be in os.environ from .env
+    _groq_key = os.environ.get("GROQ_API_KEY")
 
 # Add parent dir to path so we can import modules
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -114,7 +113,9 @@ with st.sidebar.expander("Advanced Settings"):
     platforms = st.multiselect("Platforms to Scrape", ["LinkedIn", "Indeed"], default=["LinkedIn", "Indeed"])
 
 # Initialize processors
-processor = DataProcessor()
+processor = DataProcessor(groq_api_key=_groq_key)
+if not processor.groq_api_healthy:
+    st.sidebar.warning("⚠️ Groq API key not found. Skills & salary analysis disabled.")
 
 # Async scraping wrapper
 async def run_scrapers(job: str, max_n: int, plats: list):
@@ -136,7 +137,7 @@ async def run_scrapers(job: str, max_n: int, plats: list):
 
 async def fetch_company_salaries(job_title: str, companies: list) -> dict:
     try:
-        abs_scraper = AmbitionBoxScraper()
+        abs_scraper = AmbitionBoxScraper(groq_api_key=_groq_key)
         return await abs_scraper.get_salaries_batch(job_title, companies)
     except Exception as e:
         print(f"Failed to fetch company salaries: {e}")
