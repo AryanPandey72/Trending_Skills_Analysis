@@ -7,6 +7,9 @@ import plotly.express as px
 import plotly.graph_objects as go
 import itertools
 
+# Install Playwright Chromium on Streamlit Cloud runtime
+os.system("playwright install chromium")
+
 if sys.platform == 'win32':
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 # Add parent dir to path so we can import modules
