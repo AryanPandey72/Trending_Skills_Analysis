@@ -7,11 +7,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import itertools
 
-# Install Playwright Chromium on Streamlit Cloud runtime
-os.system("playwright install chromium")
 
-if sys.platform == 'win32':
-    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 # Add parent dir to path so we can import modules
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
@@ -134,13 +130,7 @@ async def fetch_company_salaries(job_title: str, companies: list) -> dict:
         return {}
 
 def run_async_in_event_loop(job, max_n, plats):
-    if sys.platform == 'win32':
-        # Streamlit runs in a separate thread. We MUST explicitly create a ProactorEventLoop 
-        # on Windows for that thread so Playwright can spawn subprocesses.
-        loop = asyncio.ProactorEventLoop()
-    else:
-        loop = asyncio.new_event_loop()
-        
+    loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:
         return loop.run_until_complete(run_scrapers(job, max_n, plats))

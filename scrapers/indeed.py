@@ -1,5 +1,5 @@
 import asyncio
-from playwright.async_api import async_playwright
+import httpx
 from bs4 import BeautifulSoup
 import urllib.parse
 import re
@@ -7,30 +7,27 @@ import re
 class IndeedScraper:
     def __init__(self):
         self.base_url = "https://www.indeed.com/jobs"
+        self.headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9",
+        }
 
     async def get_jobs(self, job_title: str, max_jobs: int = 50) -> list[dict]:
-        """Scrape jobs from Indeed."""
+        """Scrape jobs from Indeed using httpx (no browser needed)."""
         jobs = []
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True)
-            context = await browser.new_context(
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                viewport={"width": 1920, "height": 1080}
-            )
-            page = await context.new_page()
-            
-            encoded_title = urllib.parse.quote(job_title)
-            search_url = f"{self.base_url}?q={encoded_title}&l="
-            
+        encoded_title = urllib.parse.quote(job_title)
+        search_url = f"{self.base_url}?q={encoded_title}&l="
+
+        async with httpx.AsyncClient(headers=self.headers, follow_redirects=True, timeout=30.0) as client:
             try:
-                # Indeed aggressively blocks scraping, Cloudflare checks might trigger.
-                await page.goto(search_url, wait_until="networkidle", timeout=60000)
-                
-                content = await page.content()
-                soup = BeautifulSoup(content, 'html.parser')
-                
+                response = await client.get(search_url)
+                response.raise_for_status()
+
+                soup = BeautifulSoup(response.text, 'html.parser')
+
                 job_cards = soup.find_all('div', class_=re.compile(r'job_seen_beacon'))
-                    
+
                 for card in job_cards[:max_jobs]:
                     try:
                         title_elem = card.find('h2', class_='jobTitle')
@@ -39,14 +36,14 @@ class IndeedScraper:
                         link_elem = title_elem.find('a') if title_elem else None
                         salary_elem = card.find('div', class_='salary-snippet-container')
                         snippet_elem = card.find('div', class_='job-snippet')
-                        
+
                         title = title_elem.text.strip() if title_elem else "Unknown"
                         company = company_elem.text.strip() if company_elem else "Unknown"
                         location = location_elem.text.strip() if location_elem else "Unknown"
                         link = "https://www.indeed.com" + link_elem['href'] if link_elem and 'href' in link_elem.attrs else ""
                         salary = salary_elem.text.strip() if salary_elem else "Not Specified"
                         snippet = snippet_elem.text.strip() if snippet_elem else ""
-                        
+
                         jobs.append({
                             "platform": "Indeed",
                             "title": title,
@@ -54,18 +51,15 @@ class IndeedScraper:
                             "location": location,
                             "salary_raw": salary,
                             "link": link,
-                            "description": snippet 
+                            "description": snippet
                         })
                     except Exception as e:
                         print(f"Error parsing job card: {e}")
                         continue
-                        
+
             except Exception as e:
                 print(f"Error scraping Indeed: {e}")
-                
-            finally:
-                await browser.close()
-                
+
         return jobs
 
 async def test_scraper():
