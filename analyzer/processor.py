@@ -15,28 +15,39 @@ load_dotenv()
 
 try:
     import groq
-    import os
     GROQ_AVAILABLE = True
-    groq_client = groq.Groq(api_key=os.environ.get("GROQ_API_KEY"))
-except Exception as e:
-    print(f"Warning: Groq client not initialized ({e}). Operating with flashtext only.")
+except ImportError:
     GROQ_AVAILABLE = False
-    groq_client = None
+
+_groq_client = None
+
+def _get_groq_client():
+    """Lazily initialize the Groq client so env vars have time to be set."""
+    global _groq_client
+    if _groq_client is None and GROQ_AVAILABLE:
+        api_key = os.environ.get("GROQ_API_KEY")
+        if api_key:
+            try:
+                _groq_client = groq.Groq(api_key=api_key)
+            except Exception as e:
+                print(f"Warning: Groq client not initialized ({e}).")
+    return _groq_client
 
 class DataProcessor:
     def __init__(self):
-        # Track API setup (Ensure Groq was initialized)
-        self.groq_api_healthy = True if GROQ_AVAILABLE else False
+        self.groq_api_healthy = _get_groq_client() is not None
+
             
     def extract_skills(self, jobs: list[dict]) -> list[list[str]]:
         """Extract skills from a batch of jobs using Groq LLM (10 jobs at a time)."""
         all_skills = [[] for _ in range(len(jobs))]
         
-        if not (self.groq_api_healthy and groq_client):
+        if not (self.groq_api_healthy and _get_groq_client()):
             return all_skills
             
         import json
         batch_size = 10
+        client = _get_groq_client()
         
         for i in range(0, len(jobs), batch_size):
             batch = jobs[i:i+batch_size]
@@ -64,7 +75,7 @@ class DataProcessor:
             
             while retry_count < max_retries and not batch_success:
                 try:
-                    completion = groq_client.chat.completions.create(
+                    completion = client.chat.completions.create(
                         model="llama-3.3-70b-versatile",
                         messages=[
                             {"role": "system", "content": system_prompt},

@@ -1,21 +1,33 @@
 import asyncio
 import json
+import os
 
 try:
     import groq
-    import os
     GROQ_AVAILABLE = True
-    groq_client = groq.Groq(api_key=os.environ.get("GROQ_API_KEY"))
-except Exception as e:
+except ImportError:
     GROQ_AVAILABLE = False
-    groq_client = None
+
+_groq_client = None
+
+def _get_groq_client():
+    """Lazily initialize the Groq client so env vars have time to be set."""
+    global _groq_client
+    if _groq_client is None and GROQ_AVAILABLE:
+        api_key = os.environ.get("GROQ_API_KEY")
+        if api_key:
+            try:
+                _groq_client = groq.Groq(api_key=api_key)
+            except Exception as e:
+                print(f"Groq init error: {e}")
+    return _groq_client
 
 class AmbitionBoxScraper:
     def __init__(self):
         self.base_url = "https://www.ambitionbox.com/salaries"
 
     async def get_salaries_batch(self, job_title: str, companies: list) -> dict:
-        """Fetch average salary data for multiple companies using LLM as a robust fallback to scraping."""
+        """Fetch average salary data for multiple companies using LLM estimation."""
         results = {}
         if not companies:
             return results
@@ -23,8 +35,9 @@ class AmbitionBoxScraper:
         valid_companies = [c for c in companies if c and c.lower() != "unknown"]
         if not valid_companies:
             return results
-            
-        if GROQ_AVAILABLE and groq_client:
+        
+        client = _get_groq_client()
+        if client:
             system_prompt = (
                 "You are an expert compensation analyst. "
                 "Estimate the average yearly salary in INR for the given role at the listed companies. "
@@ -34,9 +47,8 @@ class AmbitionBoxScraper:
             prompt_text = f"Role: {job_title}. Companies: {', '.join(valid_companies)}"
             
             try:
-                # Wrap sync call in asyncio.to_thread so we don't block the event loop
                 completion = await asyncio.to_thread(
-                    groq_client.chat.completions.create,
+                    client.chat.completions.create,
                     model="llama-3.3-70b-versatile",
                     messages=[
                         {"role": "system", "content": system_prompt},
@@ -49,7 +61,6 @@ class AmbitionBoxScraper:
                 response_content = completion.choices[0].message.content
                 parsed_json = json.loads(response_content)
                 
-                # Assign to results
                 for comp, sal in parsed_json.items():
                     if isinstance(sal, (int, float)):
                         results[comp] = int(sal)
