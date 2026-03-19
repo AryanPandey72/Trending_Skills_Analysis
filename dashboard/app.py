@@ -7,24 +7,27 @@ import plotly.express as px
 import plotly.graph_objects as go
 import itertools
 
-# Get Groq API key - try Streamlit secrets first, then .env
-_groq_key = None
+# Load secrets - try Streamlit secrets first, then .env
 try:
     from dotenv import load_dotenv
     load_dotenv()
 except ImportError:
     pass
 
-try:
-    _groq_key = st.secrets["GROQ_API_KEY"]
-except Exception:
-    _groq_key = os.environ.get("GROQ_API_KEY")
+def _get_secret(key):
+    try:
+        return st.secrets[key]
+    except Exception:
+        return os.environ.get(key)
+
+_groq_key = _get_secret("GROQ_API_KEY")
+_adzuna_app_id = _get_secret("ADZUNA_APP_ID")
+_adzuna_api_key = _get_secret("ADZUNA_API_KEY")
 
 # Add parent dir to path so we can import modules
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from scrapers.linkedin import LinkedInScraper
-from scrapers.indeed import IndeedScraper
+from scrapers.adzuna import AdzunaScraper
 from scrapers.ambitionbox import AmbitionBoxScraper
 from analyzer.processor import DataProcessor
 from analyzer.metrics import MetricsAnalyzer
@@ -109,8 +112,9 @@ POPULAR_JOB_TITLES = [
 job_title = st.sidebar.selectbox("Select or Type a Job Title", options=POPULAR_JOB_TITLES, index=5)
 
 with st.sidebar.expander("Advanced Settings"):
-    max_jobs = st.slider("Max Posts to Scrape (per platform)", min_value=10, max_value=200, value=30)
-    platforms = st.multiselect("Platforms to Scrape", ["LinkedIn", "Indeed"], default=["LinkedIn", "Indeed"])
+    max_jobs = st.slider("Max Job Posts to Fetch", min_value=10, max_value=200, value=50)
+    country = st.selectbox("Country", list(AdzunaScraper.COUNTRY_CODES.keys()), index=0)
+    country_code = AdzunaScraper.COUNTRY_CODES[country]
 
 # Initialize processors
 processor = DataProcessor(groq_api_key=_groq_key)
@@ -118,22 +122,9 @@ if not processor.groq_api_healthy:
     st.sidebar.warning("⚠️ Groq API key not found. Skills & salary analysis disabled.")
 
 # Async scraping wrapper
-async def run_scrapers(job: str, max_n: int, plats: list):
-    all_jobs = []
-    
-    if "LinkedIn" in plats:
-        with st.spinner("Scraping LinkedIn... (This can take 30-60s depending on load limits)"):
-            li_scraper = LinkedInScraper()
-            jobs = await li_scraper.get_jobs(job, max_n)
-            all_jobs.extend(jobs)
-            
-    if "Indeed" in plats:
-        with st.spinner("Scraping Indeed... (Bypassing bot protections...)"):
-            in_scraper = IndeedScraper()
-            jobs = await in_scraper.get_jobs(job, max_n)
-            all_jobs.extend(jobs)
-            
-    return all_jobs
+async def run_adzuna(job: str, max_n: int, cc: str):
+    scraper = AdzunaScraper(app_id=_adzuna_app_id, app_key=_adzuna_api_key, country=cc)
+    return await scraper.get_jobs(job, max_n)
 
 async def fetch_company_salaries(job_title: str, companies: list) -> dict:
     try:
@@ -143,13 +134,13 @@ async def fetch_company_salaries(job_title: str, companies: list) -> dict:
         print(f"Failed to fetch company salaries: {e}")
         return {}
 
-def run_async_in_event_loop(job, max_n, plats):
+def run_async(coro):
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:
-        return loop.run_until_complete(run_scrapers(job, max_n, plats))
+        return loop.run_until_complete(coro)
     except Exception as e:
-        st.error(f"Event Loop Error: {e}")
+        st.error(f"Error: {e}")
         return []
     finally:
         loop.close()
@@ -166,7 +157,8 @@ if analyze_btn:
         st.warning("Please enter a job title.")
     else:
         # Run Scrapers
-        raw_jobs = run_async_in_event_loop(job_title, max_jobs, platforms)
+        with st.spinner(f"Fetching jobs from Adzuna ({country})..."):
+            raw_jobs = run_async(run_adzuna(job_title, max_jobs, country_code))
         
         if not raw_jobs:
             st.error("Scraping failed or no jobs found. Try adjusting the search query.")
@@ -181,10 +173,8 @@ if analyze_btn:
                 unique_companies = cleaned_df['company'].dropna().unique().tolist()
                 top_companies = [c for c in unique_companies if isinstance(c, str) and c.lower() != 'unknown'][:15]
                 
-                # Fetch company-specific salaries from AmbitionBox
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                company_salaries = loop.run_until_complete(fetch_company_salaries(job_title, top_companies))
+                # Fetch company-specific salaries via Groq AI
+                company_salaries = run_async(fetch_company_salaries(job_title, top_companies))
                 
                 # Map these salaries back into the dataframe to replace sparse scraped salaries
                 def map_salary(row):
